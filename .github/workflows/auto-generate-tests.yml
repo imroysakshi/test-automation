@@ -1,0 +1,57 @@
+name: Auto-Generate Tests from Code Changes
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app-codebase/src/features/**/*.ts'
+  workflow_dispatch:
+
+jobs:
+  generate-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout test-automation repo
+        uses: actions/checkout@v4
+        with:
+          repository: imroysakshi/test-automation
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: test-automation
+
+      - name: Checkout app-codebase repo
+        uses: actions/checkout@v4
+        with:
+          repository: imroysakshi/app-codebase
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: app-codebase
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        working-directory: test-automation
+        run: npm install
+
+      - name: Compile TypeScript
+        working-directory: test-automation
+        run: npx tsc
+
+      - name: Run test generation script
+        working-directory: test-automation
+        run: node dist/src/scripts/syncFromCodebase.js
+
+      - name: Configure git
+        run: |
+          git config --global user.email "automation@github.com"
+          git config --global user.name "Test Automation Bot"
+
+      - name: Commit and push generated tests
+        working-directory: test-automation
+        run: |
+          git add src/tests/specs/
+          git commit -m "🤖 auto-generate tests from code changes" --allow-empty || echo "No changes to commit"
+          git push origin main
