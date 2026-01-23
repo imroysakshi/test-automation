@@ -31,17 +31,23 @@ import * as path from "path";
 import { mapCodeToTest } from "../ai/mapper";
 import { generateTestScript } from "../ai/generateTestScript";
 
-const CODEBASE_PATH = "../app-codebase";
+// Get the correct path based on execution environment
+const CODEBASE_PATH = process.env.CODEBASE_PATH || "../app-codebase";
 
 function getChangedFiles(): string[] {
-  const output = execSync(
-    "git diff --name-only HEAD~1 HEAD",
-    { cwd: CODEBASE_PATH }
-  ).toString();
+  try {
+    const output = execSync(
+      "git diff --name-only HEAD~1 HEAD",
+      { cwd: CODEBASE_PATH, encoding: "utf-8" }
+    );
 
-  return output
-    .split("\n")
-    .filter(f => f.startsWith("src/features/") && f.endsWith(".ts"));
+    return output
+      .split("\n")
+      .filter(f => f.trim().startsWith("src/features/") && f.endsWith(".ts"));
+  } catch (error: any) {
+    console.log("⚠️ Git diff failed or no previous commit - attempting fallback");
+    return [];
+  }
 }
 
 function createTestFile(filePath: string) {
@@ -68,6 +74,9 @@ function createTestFile(filePath: string) {
 }
 
 function main() {
+  console.log(`📂 Codebase path: ${CODEBASE_PATH}`);
+  console.log(`📂 Working directory: ${process.cwd()}`);
+  
   const files = getChangedFiles();
 
   if (files.length === 0) {
@@ -75,6 +84,7 @@ function main() {
     return;
   }
 
+  console.log(`📝 Found ${files.length} changed file(s)`);
   files.forEach(createTestFile);
 }
 

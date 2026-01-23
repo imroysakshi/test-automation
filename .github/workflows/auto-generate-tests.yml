@@ -35,9 +35,14 @@ jobs:
         run: npm install
 
       - name: Compile TypeScript
-        run: npx tsc
+        run: npx tsc || exit 1
+
+      - name: Verify compiled file exists
+        run: ls -la dist/src/scripts/syncFromCodebase.js || exit 1
 
       - name: Run test generation script
+        env:
+          CODEBASE_PATH: ./app-codebase
         run: node dist/src/scripts/syncFromCodebase.js
 
       - name: Commit and push generated tests
