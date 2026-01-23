@@ -1,57 +1,165 @@
 name: Auto-Generate Tests from Code Changes
-
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-    paths:
-      - 'app-codebase/src/features/**/*.ts'
-  workflow_dispatch:
 
 permissions:
-  contents: write
-  
+  contents: write   # required to push commits back to the repo
+
 jobs:
-  generate-tests:
+  sync-tests:
     runs-on: ubuntu-latest
-    
+    env:
+      # Default CODEBASE_PATH used by the script (can be overridden in the UI or by other steps)
+      CODEBASE_PATH: ${{ github.workspace }}/app-codebase
+
     steps:
-      - name: Checkout test-automation repo
+      - name: Checkout test-automation (primary repo)
         uses: actions/checkout@v4
         with:
-          repository: imroysakshi/test-automation
-          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
 
-      - name: Checkout app-codebase repo
+      - name: Checkout app-codebase into ./app-codebase
         uses: actions/checkout@v4
         with:
           repository: imroysakshi/app-codebase
-          token: ${{ secrets.GH_PAT }}
           path: app-codebase
+          fetch-depth: 0
+          # If checkout fails due to permissions for a private repo, create a PAT and set it as a secret (e.g. APP_CODEBASE_PAT)
+          # then uncomment the next line and set token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Show workspace & debug info
+        run: |
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "pwd: $(pwd)"
+          echo "Listing root:"
+          ls -la
+          echo "Listing app-codebase:"
+          ls -la app-codebase || true
+          echo "Listing test-automation src:"
+          ls -la src || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: "18"
+          cache: "npm"
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install dependencies (test-automation)
+        run: npm ci
 
-      - name: Compile TypeScript
-        run: npx tsc || exit 1
+      - name: Build (test-automation)
+        run: npm run build
+        # Ensure your package.json has a build script that compiles TypeScript to dist/
 
-      - name: Verify compiled file exists
-        run: ls -la dist/scripts/syncFromCodebase.js || exit 1
-
-      - name: Run test generation script
+      - name: Run syncFromCodebase script
         env:
-          CODEBASE_PATH: ./app-codebase
-        run: node dist/scripts/syncFromCodebase.js
-
-      - name: Commit and push generated tests
+          # Ensure this env points to the checked-out app-codebase folder
+          CODEBASE_PATH: ${{ github.workspace }}/app-codebase
         run: |
-          git config --global user.email "automation@github.com"
-          git config --global user.name "Test Automation Bot"
-          git add src/tests/specs/
-          git commit -m "🤖 auto-generate tests from code changes" --allow-empty || echo "No changes to commit"
-          git push origin main
+          echo "Using CODEBASE_PATH=$CODEBASE_PATH"
+          node ./dist/scripts/syncFromCodebase.js
+          echo "After run, list generated tests (if any):"
+          ls -la src/tests/specs || true
+
+      - name: Upload generated tests as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-tests
+          path: src/tests/specs
+
+      - name: Commit & push generated tests (if any) to new branch
+        env:
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+        run: |
+          set -e
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+
+          # Create a branch for generated tests
+          BRANCH="generated-tests/${GITHUB_RUN_ID}"
+          git checkout -b "$BRANCH"
+
+          # Add only the generated tests folder
+          git add src/tests/specs || true
+
+          # Commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No generated tests to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: add generated tests from app-codebase (run $GITHUB_RUN_ID)"
+          # Push the branch back to origin
+          git push --set-upstream origin "$BRANCH"
+
+      - name: Debug: final repo listing
+        if: always()
+        run: |
+          echo "Final listing of src/tests/specs (repo workspace):"
+          ls -la src/tests/specs || true
+
+
+
+
+
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - 'app-codebase/src/features/**/*.ts'
+#   workflow_dispatch:
+
+# permissions:
+#   contents: write
+  
+# jobs:
+#   generate-tests:
+#     runs-on: ubuntu-latest
+    
+#     steps:
+#       - name: Checkout test-automation repo
+#         uses: actions/checkout@v4
+#         with:
+#           repository: imroysakshi/test-automation
+#           token: ${{ secrets.GH_PAT }}
+
+#       - name: Checkout app-codebase repo
+#         uses: actions/checkout@v4
+#         with:
+#           repository: imroysakshi/app-codebase
+#           token: ${{ secrets.GH_PAT }}
+#           path: app-codebase
+
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '18'
+
+#       - name: Install dependencies
+#         run: npm install
+
+#       - name: Compile TypeScript
+#         run: npx tsc || exit 1
+
+#       - name: Verify compiled file exists
+#         run: ls -la dist/scripts/syncFromCodebase.js || exit 1
+
+#       - name: Run test generation script
+#         env:
+#           CODEBASE_PATH: ./app-codebase
+#         run: node dist/scripts/syncFromCodebase.js
+
+#       - name: Commit and push generated tests
+#         run: |
+#           git config --global user.email "automation@github.com"
+#           git config --global user.name "Test Automation Bot"
+#           git add src/tests/specs/
+#           git commit -m "🤖 auto-generate tests from code changes" --allow-empty || echo "No changes to commit"
+#           git push origin main
+
