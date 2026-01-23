@@ -97,11 +97,11 @@ jobs:
           # Push the branch back to origin
           git push --set-upstream origin "$BRANCH"
 
-      - name: Debug: final repo listing
-        if: always()
-        run: |
-          echo "Final listing of src/tests/specs (repo workspace):"
-          ls -la src/tests/specs || true
+    #   - name: Debug: final repo listing
+    #     if: always()
+    #     run: |
+    #       echo "Final listing of src/tests/specs (repo workspace):"
+    #       ls -la src/tests/specs || true
 
 
 
