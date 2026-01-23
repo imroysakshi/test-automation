@@ -80,8 +80,9 @@ jobs:
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # Create a branch for generated tests
-          BRANCH="generated-tests/${GITHUB_RUN_ID}"
+          # Create a branch for generated tests matching the app-codebase feature branch
+          APP_CODEBASE_BRANCH=$(cd app-codebase && git rev-parse --abbrev-ref HEAD)
+          BRANCH="test-$APP_CODEBASE_BRANCH"
           git checkout -b "$BRANCH"
 
           # Add only the generated tests folder
