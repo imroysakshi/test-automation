@@ -32,20 +32,38 @@ import { mapCodeToTest } from "../ai/mapper";
 import { generateTestScript } from "../ai/generateTestScript";
 
 // Get the correct path based on execution environment
-const CODEBASE_PATH = process.env.CODEBASE_PATH || "../app-codebase";
+let CODEBASE_PATH = process.env.CODEBASE_PATH || "./app-codebase";
+
+// Convert to absolute path if relative
+if (!path.isAbsolute(CODEBASE_PATH)) {
+  CODEBASE_PATH = path.resolve(process.cwd(), CODEBASE_PATH);
+}
 
 function getChangedFiles(): string[] {
   try {
+    console.log(`📂 Running git diff in: ${CODEBASE_PATH}`);
+    
     const output = execSync(
       "git diff --name-only HEAD~1 HEAD",
       { cwd: CODEBASE_PATH, encoding: "utf-8" }
     );
 
-    return output
+    console.log(`📋 Raw git diff output:\n${output}`);
+
+    const filtered = output
       .split("\n")
-      .filter(f => f.trim().startsWith("src/features/") && f.endsWith(".ts"));
+      .filter(f => {
+        const trimmed = f.trim();
+        const isFeatureFile = trimmed.startsWith("src/features/") && trimmed.endsWith(".ts");
+        console.log(`  - ${trimmed} -> ${isFeatureFile ? "✓ MATCH" : "✗ skip"}`);
+        return isFeatureFile;
+      });
+
+    console.log(`\n✅ Filtered result: ${filtered.length} matching files`);
+    return filtered;
   } catch (error: any) {
     console.log("⚠️ Git diff failed or no previous commit - attempting fallback");
+    console.log(`Error: ${error.message}`);
     return [];
   }
 }
