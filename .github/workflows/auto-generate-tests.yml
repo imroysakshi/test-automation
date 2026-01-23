@@ -17,13 +17,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: imroysakshi/test-automation
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
 
       - name: Checkout app-codebase repo
         uses: actions/checkout@v4
         with:
           repository: imroysakshi/app-codebase
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
           path: app-codebase
 
       - name: Setup Node.js
@@ -46,11 +46,9 @@ jobs:
         run: node dist/scripts/syncFromCodebase.js
 
       - name: Commit and push generated tests
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config --global user.email "automation@github.com"
           git config --global user.name "Test Automation Bot"
           git add src/tests/specs/
           git commit -m "🤖 auto-generate tests from code changes" --allow-empty || echo "No changes to commit"
-          git push https://imroysakshi:${GH_PAT}@github.com/imroysakshi/test-automation.git main
+          git push origin main
