@@ -46,9 +46,11 @@ jobs:
         run: node dist/scripts/syncFromCodebase.js
 
       - name: Commit and push generated tests
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config --global user.email "automation@github.com"
           git config --global user.name "Test Automation Bot"
           git add src/tests/specs/
           git commit -m "🤖 auto-generate tests from code changes" --allow-empty || echo "No changes to commit"
-          git push origin main
+          git push https://imroysakshi:${GH_PAT}@github.com/imroysakshi/test-automation.git main
