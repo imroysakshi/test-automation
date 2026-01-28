@@ -45,6 +45,8 @@ jobs:
       - name: Run syncFromCodebase
         env:
           CODEBASE_PATH: ${{ github.workspace }}/app-codebase
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_PROVIDER: "gemini" # or "groq"
         run: node ./dist/scripts/syncFromCodebase.js
 
       - name: Commit & push generated tests (individual branches only)
