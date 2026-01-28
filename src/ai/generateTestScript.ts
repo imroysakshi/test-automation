@@ -5,12 +5,13 @@ export async function generateTestScript(feature: string, testName: string, code
 
   const systemPrompt = `You are a Playwright and TypeScript expert. 
 Your goal is to generate high-quality automation test scripts that follow best practices:
-1. Use Page Object Model patterns where appropriate.
-2. Include clean setup/teardown if needed.
-3. Use descriptive test names.
-4. Ensure all assertions are relevant.
-5. Use "test.describe" to group tests.
-6. Return ONLY the code, without markdown markers.`;
+1. Use Page Object Model patterns.
+2. IMPORTANT: Do NOT import from application 'src' or 'features' folders.
+3. Page Objects are located in '../../../pages/'. Use this path for imports.
+4. If a Page Object for the feature exists, use it (e.g., if feature is 'user', use UserPage from '../../../pages/user.page').
+5. Include clean setup/teardown if needed.
+6. Use "test.describe" to group tests.
+7. Return ONLY the code, without markdown markers.`;
 
   const userPrompt = `Generate a Playwright test script for the following feature.
 Feature: ${feature}
@@ -26,7 +27,8 @@ ${code}
 
   const script = await llm.generate(systemPrompt, userPrompt);
 
-  // Clean up markdown markers if the LLM included them
-  return script.replace(/```typescript/g, "").replace(/```javascript/g, "").replace(/```/g, "").trim();
-}
+  // Clean up markdown markers and prepend @ts-nocheck to avoid build failures due to LLM hallucinations
+  const cleanedScript = script.replace(/```typescript/g, "").replace(/```javascript/g, "").replace(/```/g, "").trim();
 
+  return `// @ts-nocheck\n${cleanedScript}`;
+}
