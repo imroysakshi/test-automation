@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { OrderService, OrderUpdateInput } from '../src/orderService'; // Adjust path as necessary
+import { OrderService, OrderUpdateInput } from '../../../orderService'; // Adjusted path to src/
 
 // Service Object to wrap OrderService for Playwright tests
 class OrderApiClient {
@@ -102,7 +102,7 @@ test.describe('Order Management Service', () => {
             });
 
             test('should successfully update an order by removing some existing items', async () => {
-                const subsetItems = []; // Removing all for simplicity
+                const subsetItems: any[] = []; // Explicit type to satisfy TS strict mode
                 const result = await orderApiClient.updateOrder({
                     orderId: MOCK_ORDER_ID,
                     status: 'PENDING',

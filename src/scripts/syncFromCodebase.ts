@@ -42,7 +42,26 @@ function getChangedFiles(): string[] {
   }
 }
 
-async function createTestFile(filePath: string) {
+function getDirectoryStructure(dir: string, prefix = ""): string {
+  let result = "";
+  try {
+    const items = fs.readdirSync(dir);
+    for (const item of items) {
+      if (item === "node_modules" || item === ".git") continue;
+      const fullPath = path.join(dir, item);
+      const isDir = fs.statSync(fullPath).isDirectory();
+      result += `${prefix}${item}${isDir ? "/" : ""}\n`;
+      if (isDir) {
+        result += getDirectoryStructure(fullPath, prefix + "  ");
+      }
+    }
+  } catch (err) {
+    console.error(`Error reading directory ${dir}:`, err);
+  }
+  return result;
+}
+
+async function createTestFile(filePath: string, dirStructure: string) {
   const { feature, testName } = mapCodeToTest(filePath);
   const fullPath = path.join(CODEBASE_PATH, filePath);
 
@@ -59,7 +78,7 @@ async function createTestFile(filePath: string) {
   const testCases = await generateTestCases(code);
 
   // 2. Generate Test Script
-  const testScript = await generateTestScript(feature, testName, code, testCases);
+  const testScript = await generateTestScript(feature, testName, code, testCases, dirStructure);
 
   const testDir = path.join(
     "src/tests/specs",
@@ -94,8 +113,10 @@ async function main() {
 
   console.log(`📝 Found ${files.length} changed file(s)`);
 
+  const dirStructure = getDirectoryStructure(CODEBASE_PATH);
+
   for (const file of files) {
-    await createTestFile(file);
+    await createTestFile(file, dirStructure);
   }
 }
 
