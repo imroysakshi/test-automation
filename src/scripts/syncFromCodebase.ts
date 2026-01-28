@@ -1,35 +1,9 @@
-// import fs from "fs";
-// import path from "path";
-// import { mapCodeToTest } from "../ai/mapper";
-// import { generateTestScript } from "../ai/generateTestScript";
-
-// export function createTestFile(filePath: string) {
-//   const { feature, testName } = mapCodeToTest(filePath);
-
-//   const testDir = path.join(
-//     "tests/specs",
-//     feature
-//   );
-
-//   fs.mkdirSync(testDir, { recursive: true });
-
-//   const testFilePath = path.join(
-//     testDir,
-//     `${testName}.spec.ts`
-//   );
-
-//   fs.writeFileSync(
-//     testFilePath,
-//     generateTestScript(feature, testName)
-//   );
-// }
-
-
 import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { mapCodeToTest } from "../ai/mapper";
 import { generateTestScript } from "../ai/generateTestScript";
+import { generateTestCases } from "../ai/generateTestCases";
 
 // Get the correct path based on execution environment
 let CODEBASE_PATH = process.env.CODEBASE_PATH || "./app-codebase";
@@ -42,7 +16,7 @@ if (!path.isAbsolute(CODEBASE_PATH)) {
 function getChangedFiles(): string[] {
   try {
     console.log(`📂 Running git diff in: ${CODEBASE_PATH}`);
-    
+
     const output = execSync(
       "git diff --name-only HEAD~1 HEAD",
       { cwd: CODEBASE_PATH, encoding: "utf-8" }
@@ -68,8 +42,24 @@ function getChangedFiles(): string[] {
   }
 }
 
-function createTestFile(filePath: string) {
+async function createTestFile(filePath: string) {
   const { feature, testName } = mapCodeToTest(filePath);
+  const fullPath = path.join(CODEBASE_PATH, filePath);
+
+  if (!fs.existsSync(fullPath)) {
+    console.log(`⚠️ File not found: ${fullPath}`);
+    return;
+  }
+
+  const code = fs.readFileSync(fullPath, "utf-8");
+
+  console.log(`🧠 Analyzing ${feature}/${testName}...`);
+
+  // 1. Generate Test Cases
+  const testCases = await generateTestCases(code);
+
+  // 2. Generate Test Script
+  const testScript = await generateTestScript(feature, testName, code, testCases);
 
   const testDir = path.join(
     "src/tests/specs",
@@ -85,16 +75,16 @@ function createTestFile(filePath: string) {
 
   fs.writeFileSync(
     testFile,
-    generateTestScript(feature, testName)
+    testScript
   );
 
   console.log(`✅ Test generated: ${testFile}`);
 }
 
-function main() {
+async function main() {
   console.log(`📂 Codebase path: ${CODEBASE_PATH}`);
   console.log(`📂 Working directory: ${process.cwd()}`);
-  
+
   const files = getChangedFiles();
 
   if (files.length === 0) {
@@ -103,7 +93,13 @@ function main() {
   }
 
   console.log(`📝 Found ${files.length} changed file(s)`);
-  files.forEach(createTestFile);
+
+  for (const file of files) {
+    await createTestFile(file);
+  }
 }
 
-main();
+main().catch(err => {
+  console.error("❌ Sync failed:", err);
+  process.exit(1);
+});
