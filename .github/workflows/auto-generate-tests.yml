@@ -8,6 +8,8 @@ on:
 jobs:
   sync-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     env:
       CODEBASE_PATH: ${{ github.workspace }}/app-codebase
