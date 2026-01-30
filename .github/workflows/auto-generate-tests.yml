@@ -84,7 +84,7 @@ jobs:
           git checkout -b "$BRANCH_NAME" || git checkout "$BRANCH_NAME"
 
           git commit -m "chore: update generated tests from app-codebase branch $BRANCH_NAME (run $GITHUB_RUN_ID)"
-          git push --set-upstream origin "$BRANCH_NAME"
+          git push --force --set-upstream origin "$BRANCH_NAME"
 
 
 
