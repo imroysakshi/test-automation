@@ -75,7 +75,10 @@ async function createTestFile(filePath: string, dirStructure: string) {
   console.log(`🧠 Analyzing ${feature}/${testName}...`);
 
   // 1. Generate Test Cases
-  const testCases = await generateTestCases(code);
+  const testCases = await generateTestCases(code, {
+    featureName: feature,
+    codeType: "Feature Implementation"
+  });
 
   // 2. Generate Test Script
   const testScript = await generateTestScript(feature, testName, code, testCases, dirStructure);
