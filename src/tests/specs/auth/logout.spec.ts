@@ -1,4 +1,4 @@
-// Logics to be preserved...........
+// @ts-nocheck
 // @ts-nocheck
 import { test, expect, Page } from '@playwright/test';
 import { AuthPage } from '../../../pages/auth.page'; // Path from src/tests/specs/auth/
@@ -16,6 +16,12 @@ import {
 const MOCK_OTHER_PERSISTENT_DATA = 'important_info_123';
 const MOCK_SESSION_USER = 'loggedInUser_abc';
 
+// For logoutPreservingPreferences function
+const MOCK_PRESERVED_THEME = 'dark-mode-preserved';
+const MOCK_PRESERVED_LANGUAGE = 'en-US-preserved';
+const MOCK_USER_DATA_FOR_SESSION = 'session_user_profile_data';
+
+
 // The content of the logout function as it would exist in the application codebase
 // This is executed directly in the browser context via page.evaluate
 const logoutFunctionInBrowserContext = () => {
@@ -32,6 +38,30 @@ const logoutOnSessionExpiryFunctionInBrowserContext = () => {
   sessionStorage.clear();
   console.warn('Session expired. Logging out user.');
   window.location.href = '/login?reason=session-expired';
+};
+
+// The content of the logoutPreservingPreferences function as it would exist in the application codebase
+// This is executed directly in the browser context via page.evaluate
+const logoutPreservingPreferencesFunctionInBrowserContext = () => {
+  // Preserve specific preferences
+  const theme = localStorage.getItem('theme');
+  const language = localStorage.getItem('language');
+
+  // Clear auth-related storage
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  sessionStorage.clear();
+
+  // Restore preserved preferences
+  if (theme) {
+    localStorage.setItem('theme', theme);
+  }
+  if (language) {
+    localStorage.setItem('language', language);
+  }
+
+  // Redirect to login page
+  window.location.href = '/login';
 };
 
 test.describe('Logout Functionality', () => {
@@ -566,5 +596,201 @@ test.describe('Logout Functionality', () => {
     expect(sessionStorageLength).toBe(0); // Should remain empty
 
     expect(consoleWarningMessage).toBe('Session expired. Logging out user.');
+  });
+
+  // NEW TESTS START HERE (TC-015 onward)
+
+  // TC-015 | Logout Preserving Preferences - Preserves Theme and Language, Clears Auth, Redirects
+  test('TC-015 | Logout Preserving Preferences - Preserves Theme and Language, Clears Auth, Redirects', async ({ page }) => {
+    await authPage.navigateToDashboard();
+
+    // Set initial storage state with auth tokens and preferences
+    await page.evaluate(
+      (accessToken, refreshToken, theme, language, userData) => {
+        localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('refreshToken', refreshToken);
+        localStorage.setItem('theme', theme); // Key 'theme'
+        localStorage.setItem('language', language); // Key 'language'
+        sessionStorage.setItem('userData', userData);
+      },
+      MOCK_ACCESS_TOKEN,
+      MOCK_REFRESH_TOKEN,
+      MOCK_PRESERVED_THEME,
+      MOCK_PRESERVED_LANGUAGE,
+      MOCK_USER_DATA_FOR_SESSION
+    );
+
+    // Execute logoutPreservingPreferences function
+    await page.evaluate(logoutPreservingPreferencesFunctionInBrowserContext);
+
+    // Assertions
+    await page.waitForURL('/login');
+    expect(page.url()).toContain('/login');
+
+    const localStorageAfterLogout: Record<string, string | null> = await page.evaluate(() => ({
+      accessToken: localStorage.getItem('accessToken'),
+      refreshToken: localStorage.getItem('refreshToken'),
+      theme: localStorage.getItem('theme'),
+      language: localStorage.getItem('language'),
+    }));
+    expect(localStorageAfterLogout.accessToken).toBeNull();
+    expect(localStorageAfterLogout.refreshToken).toBeNull();
+    expect(localStorageAfterLogout.theme).toBe(MOCK_PRESERVED_THEME); // Theme should be preserved
+    expect(localStorageAfterLogout.language).toBe(MOCK_PRESERVED_LANGUAGE); // Language should be preserved
+
+    const sessionStorageLength = await page.evaluate(() => sessionStorage.length);
+    expect(sessionStorageLength).toBe(0); // Session storage cleared
+  });
+
+  // TC-016 | Logout Preserving Preferences - No Preferences Exist, Clears Auth, Redirects
+  test('TC-016 | Logout Preserving Preferences - No Preferences Exist, Clears Auth, Redirects', async ({ page }) => {
+    await authPage.navigateToDashboard();
+
+    // Set initial storage state (only auth tokens and session data, no theme/language)
+    await page.evaluate(
+      (accessToken, refreshToken, userData) => {
+        localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('refreshToken', refreshToken);
+        sessionStorage.setItem('userData', userData);
+      },
+      MOCK_ACCESS_TOKEN,
+      MOCK_REFRESH_TOKEN,
+      MOCK_USER_DATA_FOR_SESSION
+    );
+
+    // Verify preferences are not present (precondition check)
+    expect(await page.evaluate(() => localStorage.getItem('theme'))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem('language'))).toBeNull();
+
+    // Execute logoutPreservingPreferences function
+    await page.evaluate(logoutPreservingPreferencesFunctionInBrowserContext);
+
+    // Assertions
+    await page.waitForURL('/login');
+    expect(page.url()).toContain('/login');
+
+    const localStorageAfterLogout: Record<string, string | null> = await page.evaluate(() => ({
+      accessToken: localStorage.getItem('accessToken'),
+      refreshToken: localStorage.getItem('refreshToken'),
+      theme: localStorage.getItem('theme'),
+      language: localStorage.getItem('language'),
+    }));
+    expect(localStorageAfterLogout.accessToken).toBeNull();
+    expect(localStorageAfterLogout.refreshToken).toBeNull();
+    expect(localStorageAfterLogout.theme).toBeNull(); // Theme should still be null
+    expect(localStorageAfterLogout.language).toBeNull(); // Language should still be null
+
+    const sessionStorageLength = await page.evaluate(() => sessionStorage.length);
+    expect(sessionStorageLength).toBe(0); // Session storage cleared
+  });
+
+  // TC-017 | Logout Preserving Preferences - Only Some Preferences Exist, Preserves Existing, Clears Auth, Redirects
+  test('TC-017 | Logout Preserving Preferences - Only Some Preferences Exist, Preserves Existing, Clears Auth, Redirects', async ({ page }) => {
+    await authPage.navigateToDashboard();
+
+    // Set initial storage state (auth tokens, only theme, no language, session data)
+    await page.evaluate(
+      (accessToken, refreshToken, theme, userData) => {
+        localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('refreshToken', refreshToken);
+        localStorage.setItem('theme', theme);
+        sessionStorage.setItem('userData', userData);
+      },
+      MOCK_ACCESS_TOKEN,
+      MOCK_REFRESH_TOKEN,
+      MOCK_PRESERVED_THEME,
+      MOCK_USER_DATA_FOR_SESSION
+    );
+
+    // Verify language is not present (precondition check)
+    expect(await page.evaluate(() => localStorage.getItem('language'))).toBeNull();
+
+    // Execute logoutPreservingPreferences function
+    await page.evaluate(logoutPreservingPreferencesFunctionInBrowserContext);
+
+    // Assertions
+    await page.waitForURL('/login');
+    expect(page.url()).toContain('/login');
+
+    const localStorageAfterLogout: Record<string, string | null> = await page.evaluate(() => ({
+      accessToken: localStorage.getItem('accessToken'),
+      refreshToken: localStorage.getItem('refreshToken'),
+      theme: localStorage.getItem('theme'),
+      language: localStorage.getItem('language'),
+    }));
+    expect(localStorageAfterLogout.accessToken).toBeNull();
+    expect(localStorageAfterLogout.refreshToken).toBeNull();
+    expect(localStorageAfterLogout.theme).toBe(MOCK_PRESERVED_THEME); // Theme should be preserved
+    expect(localStorageAfterLogout.language).toBeNull(); // Language should still be null
+
+    const sessionStorageLength = await page.evaluate(() => sessionStorage.length);
+    expect(sessionStorageLength).toBe(0); // Session storage cleared
+  });
+
+  // TC-018 | Performance Scenario: Rapid consecutive calls to `logoutOnSessionExpiry`
+  test('TC-018 | Performance: Rapid consecutive calls to logoutOnSessionExpiry', async ({ page }) => {
+    await authPage.navigateToDashboard();
+
+    const startTime = performance.now();
+    const numberOfCalls = 5; // Using a small number for quick testing, but demonstrating capability
+    for (let i = 0; i < numberOfCalls; i++) {
+      // Set some data before each call to ensure the clear operation has something to do
+      await page.evaluate((at, rt, theme, lang, user) => {
+        localStorage.setItem('accessToken', at);
+        localStorage.setItem('refreshToken', rt);
+        localStorage.setItem('theme', theme);
+        localStorage.setItem('language', lang);
+        sessionStorage.setItem('userData', user);
+      }, MOCK_ACCESS_TOKEN, MOCK_REFRESH_TOKEN, MOCK_PRESERVED_THEME, MOCK_PRESERVED_LANGUAGE, MOCK_USER_DATA_FOR_SESSION);
+
+      await page.evaluate(logoutOnSessionExpiryFunctionInBrowserContext);
+      // For performance tests, we might not waitForURL on every iteration,
+      // but ensure final state is correct.
+    }
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+
+    // Assertions for the final state after all calls
+    await page.waitForURL('/login?reason=session-expired');
+    expect(page.url()).toContain('/login?reason=session-expired');
+    expect(await page.evaluate(() => localStorage.length)).toBe(0);
+    expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+    
+    // Check performance: should be quick
+    expect(duration).toBeLessThan(1000); // Generous threshold for 5 consecutive calls with setup in loop, considering Playwright overhead.
+  });
+
+  // TC-019 | Performance Scenario: Rapid consecutive calls to `logoutPreservingPreferences`
+  test('TC-019 | Performance: Rapid consecutive calls to logoutPreservingPreferences', async ({ page }) => {
+    await authPage.navigateToDashboard();
+
+    const startTime = performance.now();
+    const numberOfCalls = 5; // Using a small number for quick testing
+    for (let i = 0; i < numberOfCalls; i++) {
+      // Set some data before each call to ensure the clear and preserve operations have something to do
+      await page.evaluate((at, rt, theme, lang, user) => {
+        localStorage.setItem('accessToken', at);
+        localStorage.setItem('refreshToken', rt);
+        localStorage.setItem('theme', theme);
+        localStorage.setItem('language', lang);
+        sessionStorage.setItem('userData', user);
+      }, MOCK_ACCESS_TOKEN, MOCK_REFRESH_TOKEN, MOCK_PRESERVED_THEME, MOCK_PRESERVED_LANGUAGE, MOCK_USER_DATA_FOR_SESSION);
+
+      await page.evaluate(logoutPreservingPreferencesFunctionInBrowserContext);
+    }
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+
+    // Assertions for the final state after all calls
+    await page.waitForURL('/login');
+    expect(page.url()).toContain('/login');
+    expect(await page.evaluate(() => localStorage.getItem('accessToken'))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem('refreshToken'))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem('theme'))).toBe(MOCK_PRESERVED_THEME);
+    expect(await page.evaluate(() => localStorage.getItem('language'))).toBe(MOCK_PRESERVED_LANGUAGE);
+    expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+    
+    // Check performance: should be quick
+    expect(duration).toBeLessThan(1000); // Generous threshold for 5 consecutive calls with setup in loop.
   });
 });
