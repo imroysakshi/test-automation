@@ -6,7 +6,8 @@ export async function generateTestScript(
   code: string,
   testCases?: string,
   dirStructure?: string,
-  devRepoStatus?: string
+  devRepoStatus?: string,
+  existingTestContent?: string
 ): Promise<string> {
   const llm = new LLMClient();
 
@@ -17,6 +18,21 @@ DO NOT assume the location of any files. Use this map to determine the precise r
 ${dirStructure}
 \`\`\`
 However, for service logic (like OrderService), ALWAYS prioritize importing from the local 'test-automation/src' folder if the class exists there.` : "";
+
+  const mergeInstruction = existingTestContent ? `
+*INCREMENTAL UPDATE MODE*:
+- You are provided with the EXISTING test file content.
+- DO NOT remove or modify existing tests unless they are clearly broken by the new code changes.
+- Add NEW test cases for new methods or logic found in the 'Development Code Reference'.
+- Maintain the same coding style and POM patterns already present in the existing file.
+- Ensure all necessary imports are added if you use new page objects or services.
+- If the existing file already has a 'test.describe' block for this feature, add new tests INSIDE that block.
+
+*EXISTING TEST CONTENT*:
+\`\`\`typescript
+${existingTestContent}
+\`\`\`
+` : "";
 
   const systemPrompt = `You are a Playwright and TypeScript expert specializing in multi-repo test automation.
 
@@ -36,6 +52,9 @@ However, for service logic (like OrderService), ALWAYS prioritize importing from
 7. Page Objects are located in '../../../pages/'. Use this path for imports.
 8. Handle TypeScript strictness: Avoid implicit 'any'. For example, if you define an empty array, give it a type (e.g., 'const items: any[] = [];').
 9. ${directoryContext}
+
+*Incremental Update*:
+${mergeInstruction || "This is a new test script generation."}
 
 *Test Quality Standards*:
 - Descriptive names: "should display error message when form is submitted without required fields".

@@ -72,35 +72,42 @@ async function createTestFile(filePath: string, dirStructure: string) {
 
   const code = fs.readFileSync(fullPath, "utf-8");
 
-  console.log(`🧠 Analyzing ${feature}/${testName}...`);
-
-  // 1. Generate Test Cases
-  const testCases = await generateTestCases(code, {
-    featureName: feature,
-    codeType: "Feature Implementation"
-  });
-
-  // 2. Generate Test Script
-  const testScript = await generateTestScript(feature, testName, code, testCases, dirStructure);
-
   const testDir = path.join(
     "src/tests/specs",
     feature
   );
-
-  fs.mkdirSync(testDir, { recursive: true });
 
   const testFile = path.join(
     testDir,
     `${testName}.spec.ts`
   );
 
+  let existingTestContent: string | undefined = undefined;
+  if (fs.existsSync(testFile)) {
+    console.log(`📝 Existing test file found: ${testFile}. Reading content for merging...`);
+    existingTestContent = fs.readFileSync(testFile, "utf-8");
+  }
+
+  console.log(`🧠 Analyzing ${feature}/${testName}...`);
+
+  // 1. Generate Test Cases
+  const testCases = await generateTestCases(code, {
+    featureName: feature,
+    codeType: "Feature Implementation",
+    additionalContext: existingTestContent ? "Updating existing test suite." : "Generating new test suite."
+  });
+
+  // 2. Generate Test Script (passing existing content for incremental update)
+  const testScript = await generateTestScript(feature, testName, code, testCases, dirStructure, undefined, existingTestContent);
+
+  fs.mkdirSync(testDir, { recursive: true });
+
   fs.writeFileSync(
     testFile,
     testScript
   );
 
-  console.log(`✅ Test generated: ${testFile}`);
+  console.log(`✅ Test ${existingTestContent ? 'updated' : 'generated'}: ${testFile}`);
 }
 
 async function main() {
