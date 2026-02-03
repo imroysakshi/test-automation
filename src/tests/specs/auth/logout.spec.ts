@@ -1,5 +1,7 @@
+/* <MANUAL_ZONE> */
 // Logics to be preserved...........
 // @ts-nocheck
+/* </MANUAL_ZONE> */
 import { test, expect, Page } from '@playwright/test';
 import { AuthPage } from '../../../pages/auth.page'; // Path from src/tests/specs/auth/
 import {

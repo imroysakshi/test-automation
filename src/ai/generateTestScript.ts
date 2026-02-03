@@ -7,7 +7,8 @@ export async function generateTestScript(
   testCases?: string,
   dirStructure?: string,
   devRepoStatus?: string,
-  existingTestContent?: string
+  existingTestContent?: string,
+  manualZoneContent?: string
 ): Promise<string> {
   const llm = new LLMClient();
 
@@ -23,12 +24,18 @@ However, for service logic (like OrderService), ALWAYS prioritize importing from
 *INCREMENTAL UPDATE MODE*:
 - You are provided with the EXISTING test file content.
 - DO NOT remove or modify existing tests unless they are clearly broken by the new code changes.
+${manualZoneContent ? `- IMPORTANT: A MANUAL ZONE exists. DO NOT touch the code between '/* <MANUAL_ZONE> */' and '/* </MANUAL_ZONE> */'. You MUST include this block exactly as it is in your response.` : ""}
 - Add NEW test cases for new methods or logic found in the 'Development Code Reference'.
 - Maintain the same coding style and POM patterns already present in the existing file.
 - Ensure all necessary imports are added if you use new page objects or services.
 - If the existing file already has a 'test.describe' block for this feature, add new tests INSIDE that block.
 
-*EXISTING TEST CONTENT*:
+${manualZoneContent ? `*PRESERVED MANUAL ZONE (DO NOT EDIT)*:
+/* <MANUAL_ZONE> */
+${manualZoneContent}
+/* </MANUAL_ZONE> */` : ""}
+
+*EXISTING TEST CONTENT FOR CONTEXT*:
 \`\`\`typescript
 ${existingTestContent}
 \`\`\`
@@ -53,7 +60,7 @@ ${existingTestContent}
 8. Handle TypeScript strictness: Avoid implicit 'any'. For example, if you define an empty array, give it a type (e.g., 'const items: any[] = [];').
 9. ${directoryContext}
 
-*Incremental Update*:
+*Incremental Update & Hard Preservation*:
 ${mergeInstruction || "This is a new test script generation."}
 
 *Test Quality Standards*:

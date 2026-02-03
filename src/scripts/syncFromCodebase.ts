@@ -61,6 +61,19 @@ function getDirectoryStructure(dir: string, prefix = ""): string {
   return result;
 }
 
+const MANUAL_START = "/* <MANUAL_ZONE> */";
+const MANUAL_END = "/* </MANUAL_ZONE> */";
+
+function extractManualZone(content: string): string | null {
+  const startIndex = content.indexOf(MANUAL_START);
+  const endIndex = content.indexOf(MANUAL_END);
+
+  if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+    return content.substring(startIndex + MANUAL_START.length, endIndex).trim();
+  }
+  return null;
+}
+
 async function createTestFile(filePath: string, dirStructure: string) {
   const { feature, testName } = mapCodeToTest(filePath);
   const fullPath = path.join(CODEBASE_PATH, filePath);
@@ -83,9 +96,18 @@ async function createTestFile(filePath: string, dirStructure: string) {
   );
 
   let existingTestContent: string | undefined = undefined;
+  let manualZoneContent: string | null = null;
+
   if (fs.existsSync(testFile)) {
-    console.log(`📝 Existing test file found: ${testFile}. Reading content for merging...`);
+    console.log(`📝 Existing test file found: ${testFile}.`);
     existingTestContent = fs.readFileSync(testFile, "utf-8");
+    manualZoneContent = extractManualZone(existingTestContent);
+
+    if (manualZoneContent) {
+      console.log(`🔒 Hard Preservation: Extracted manual zone content (${manualZoneContent.length} chars).`);
+    } else {
+      console.log(`ℹ️ No explicit manual zone found. Using whole file as base context.`);
+    }
   }
 
   console.log(`🧠 Analyzing ${feature}/${testName}...`);
@@ -97,8 +119,30 @@ async function createTestFile(filePath: string, dirStructure: string) {
     additionalContext: existingTestContent ? "Updating existing test suite." : "Generating new test suite."
   });
 
-  // 2. Generate Test Script (passing existing content for incremental update)
-  const testScript = await generateTestScript(feature, testName, code, testCases, dirStructure, undefined, existingTestContent);
+  // 2. Generate Test Script (passing manual content and existing content)
+  let testScript = await generateTestScript(
+    feature,
+    testName,
+    code,
+    testCases,
+    dirStructure,
+    undefined,
+    existingTestContent,
+    manualZoneContent || undefined
+  );
+
+  // Safety Check: If AI stripped the manual zone, re-inject it at the top (after @ts-nocheck and imports)
+  if (manualZoneContent && !testScript.includes(MANUAL_START)) {
+    console.warn(`🚨 AI stripped the manual zone! Re-injecting manually...`);
+    const lines = testScript.split("\n");
+    // Find first non-comment, non-import line to inject after headers
+    let injectIndex = lines.findIndex(l => !l.startsWith("//") && !l.startsWith("import") && l.trim() !== "");
+    if (injectIndex === -1) injectIndex = lines.length;
+
+    const manualBlock = `\n${MANUAL_START}\n${manualZoneContent}\n${MANUAL_END}\n`;
+    lines.splice(injectIndex, 0, manualBlock);
+    testScript = lines.join("\n");
+  }
 
   fs.mkdirSync(testDir, { recursive: true });
 
