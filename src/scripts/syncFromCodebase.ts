@@ -109,11 +109,11 @@ async function createTestFile(filePath: string, dirStructure: string) {
 
     // Parse the existing test file to check for multiple test blocks
     parsedFile = parseTestFile(existingTestContent);
-    
+
     if (parsedFile.testBlocks.length > 0) {
       // Try to find a matching test block for this feature/testName
       matchingBlock = findMatchingTestBlock(parsedFile, feature, testName);
-      
+
       if (matchingBlock) {
         console.log(`🔄 Found matching test block: "${matchingBlock.featureName}/${matchingBlock.testName}". Using incremental update.`);
         useIncrementalUpdate = true;
@@ -145,7 +145,7 @@ async function createTestFile(filePath: string, dirStructure: string) {
   if (useIncrementalUpdate && matchingBlock && parsedFile) {
     // Incremental update: Generate only the specific test block
     console.log(`🔄 Generating incremental update for specific test block...`);
-    
+
     const updatedBlock = await generateTestBlock(
       feature,
       testName,
@@ -158,8 +158,8 @@ async function createTestFile(filePath: string, dirStructure: string) {
     );
 
     // Replace only the matching block in the file
-    testScript = replaceTestBlock(existingTestContent, matchingBlock, updatedBlock);
-    
+    testScript = replaceTestBlock(existingTestContent!, matchingBlock, updatedBlock);
+
     // Preserve manual zone if it exists
     if (manualZoneContent && !testScript.includes(MANUAL_START)) {
       console.warn(`🚨 Manual zone was removed during block update! Re-injecting...`);
