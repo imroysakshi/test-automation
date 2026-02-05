@@ -2,8 +2,9 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { mapCodeToTest } from "../ai/mapper";
-import { generateTestScript } from "../ai/generateTestScript";
+import { generateTestScript, generateTestBlock } from "../ai/generateTestScript";
 import { generateTestCases } from "../ai/generateTestCases";
+import { parseTestFile, findMatchingTestBlock, replaceTestBlock } from "../ai/testFileParser";
 
 // Get the correct path based on execution environment
 let CODEBASE_PATH = process.env.CODEBASE_PATH || "./app-codebase";
@@ -97,16 +98,36 @@ async function createTestFile(filePath: string, dirStructure: string) {
 
   let existingTestContent: string | undefined = undefined;
   let manualZoneContent: string | null = null;
+  let useIncrementalUpdate = false;
+  let matchingBlock: any = null;
+  let parsedFile: any = null;
 
   if (fs.existsSync(testFile)) {
     console.log(`📝 Existing test file found: ${testFile}.`);
     existingTestContent = fs.readFileSync(testFile, "utf-8");
     manualZoneContent = extractManualZone(existingTestContent);
 
+    // Parse the existing test file to check for multiple test blocks
+    parsedFile = parseTestFile(existingTestContent);
+
+    if (parsedFile.testBlocks.length > 0) {
+      // Try to find a matching test block for this feature/testName
+      matchingBlock = findMatchingTestBlock(parsedFile, feature, testName);
+
+      if (matchingBlock) {
+        console.log(`🔄 Found matching test block: "${matchingBlock.featureName}/${matchingBlock.testName}". Using incremental update.`);
+        useIncrementalUpdate = true;
+      } else if (parsedFile.testBlocks.length > 1) {
+        console.log(`ℹ️ File has ${parsedFile.testBlocks.length} test blocks, but no exact match found. Will add new block.`);
+      } else {
+        console.log(`ℹ️ File has 1 test block. Will update it incrementally.`);
+        matchingBlock = parsedFile.testBlocks[0];
+        useIncrementalUpdate = true;
+      }
+    }
+
     if (manualZoneContent) {
       console.log(`🔒 Hard Preservation: Extracted manual zone content (${manualZoneContent.length} chars).`);
-    } else {
-      console.log(`ℹ️ No explicit manual zone found. Using whole file as base context.`);
     }
   }
 
@@ -119,29 +140,62 @@ async function createTestFile(filePath: string, dirStructure: string) {
     additionalContext: existingTestContent ? "Updating existing test suite." : "Generating new test suite."
   });
 
-  // 2. Generate Test Script (passing manual content and existing content)
-  let testScript = await generateTestScript(
-    feature,
-    testName,
-    code,
-    testCases,
-    dirStructure,
-    undefined,
-    existingTestContent,
-    manualZoneContent || undefined
-  );
+  let testScript: string;
 
-  // Safety Check: If AI stripped the manual zone, re-inject it at the top (after @ts-nocheck and imports)
-  if (manualZoneContent && !testScript.includes(MANUAL_START)) {
-    console.warn(`🚨 AI stripped the manual zone! Re-injecting manually...`);
-    const lines = testScript.split("\n");
-    // Find first non-comment, non-import line to inject after headers
-    let injectIndex = lines.findIndex(l => !l.startsWith("//") && !l.startsWith("import") && l.trim() !== "");
-    if (injectIndex === -1) injectIndex = lines.length;
+  if (useIncrementalUpdate && matchingBlock && parsedFile) {
+    // Incremental update: Generate only the specific test block
+    console.log(`🔄 Generating incremental update for specific test block...`);
 
-    const manualBlock = `\n${MANUAL_START}\n${manualZoneContent}\n${MANUAL_END}\n`;
-    lines.splice(injectIndex, 0, manualBlock);
-    testScript = lines.join("\n");
+    const updatedBlock = await generateTestBlock(
+      feature,
+      testName,
+      code,
+      testCases,
+      dirStructure,
+      undefined,
+      matchingBlock.content,
+      parsedFile.header
+    );
+
+    // Replace only the matching block in the file
+    testScript = replaceTestBlock(existingTestContent!, matchingBlock, updatedBlock);
+
+    // Preserve manual zone if it exists
+    if (manualZoneContent && !testScript.includes(MANUAL_START)) {
+      console.warn(`🚨 Manual zone was removed during block update! Re-injecting...`);
+      const lines = testScript.split("\n");
+      let injectIndex = lines.findIndex(l => !l.startsWith("//") && !l.startsWith("import") && l.trim() !== "");
+      if (injectIndex === -1) injectIndex = lines.length;
+
+      const manualBlock = `\n${MANUAL_START}\n${manualZoneContent}\n${MANUAL_END}\n`;
+      lines.splice(injectIndex, 0, manualBlock);
+      testScript = lines.join("\n");
+    }
+  } else {
+    // Full file generation/update
+    console.log(`📄 Generating full test file...`);
+    testScript = await generateTestScript(
+      feature,
+      testName,
+      code,
+      testCases,
+      dirStructure,
+      undefined,
+      existingTestContent,
+      manualZoneContent || undefined
+    );
+
+    // Safety Check: If AI stripped the manual zone, re-inject it at the top
+    if (manualZoneContent && !testScript.includes(MANUAL_START)) {
+      console.warn(`🚨 AI stripped the manual zone! Re-injecting manually...`);
+      const lines = testScript.split("\n");
+      let injectIndex = lines.findIndex(l => !l.startsWith("//") && !l.startsWith("import") && l.trim() !== "");
+      if (injectIndex === -1) injectIndex = lines.length;
+
+      const manualBlock = `\n${MANUAL_START}\n${manualZoneContent}\n${MANUAL_END}\n`;
+      lines.splice(injectIndex, 0, manualBlock);
+      testScript = lines.join("\n");
+    }
   }
 
   fs.mkdirSync(testDir, { recursive: true });
@@ -151,7 +205,7 @@ async function createTestFile(filePath: string, dirStructure: string) {
     testScript
   );
 
-  console.log(`✅ Test ${existingTestContent ? 'updated' : 'generated'}: ${testFile}`);
+  console.log(`✅ Test ${existingTestContent ? (useIncrementalUpdate ? 'incrementally updated' : 'updated') : 'generated'}: ${testFile}`);
 }
 
 async function main() {
