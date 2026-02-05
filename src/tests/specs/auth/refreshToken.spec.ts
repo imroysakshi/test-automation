@@ -1,4 +1,5 @@
 // @ts-nocheck
+// @ts-nocheck
 // This test script assumes the following helper files are created in the `test-automation` project:
 // 1. `test-automation/src/utils/authFunctions.ts`: Contains the `refreshAccessToken` and `handleRefreshTokenFailure` functions as provided in the "Development Code Reference".
 // 2. `test-automation/src/tests/pages/auth.page.ts`: Contains the `AuthPage` class as defined below, encapsulating browser interactions related to authentication.
@@ -333,5 +334,71 @@ test.describe('Auth Refresh Token Feature', () => {
         const sensitiveTokenFoundInConsole = consoleMessages.some(msg => msg.includes(SENSITIVE_REFRESH_TOKEN));
         expect(sensitiveTokenFoundInConsole).toBeFalsy();
     });
+
+    // --- Start of new test cases added based on the coverage guide ---
+
+    test('TC-009 | refreshAccessToken: New access token overwrites existing access token', async ({ page }) => {
+        const oldAccessToken = 'old_access_token_xyz';
+        const refreshToken = 'mock_refresh_token_123';
+
+        await authPage.setRefreshToken(refreshToken);
+        await authPage.setAccessToken(oldAccessToken);
+
+        // Verify old token is present initially
+        await expect(authPage.getLocalStorageItem('accessToken')).resolves.toBe(oldAccessToken);
+
+        const newAccessToken = await authPage.refreshAccessTokenInBrowser();
+
+        // Expect a new token to be generated
+        expect(newAccessToken).toMatch(/^new_access_token_\d+$/);
+        expect(newAccessToken).not.toBe(oldAccessToken); // Ensure it's a new token
+
+        // Verify localStorage contains the new access token
+        await expect(authPage.getLocalStorageItem('accessToken')).resolves.toBe(newAccessToken);
+        // Ensure refresh token is still present and unchanged
+        await expect(authPage.getLocalStorageItem('refreshToken')).resolves.toBe(refreshToken);
+    });
+
+    test('TC-010 | refreshAccessToken: Throws error when refresh token is an empty string', async ({ page }) => {
+        await authPage.setRefreshToken(''); // Set refresh token to an empty string
+
+        // Expect the Page Object method to reject with the specified error.
+        await expect(authPage.refreshAccessTokenInBrowser()).rejects.toThrow('No refresh token available');
+        // Ensure no access token was set or modified in localStorage.
+        await expect(authPage.getLocalStorageItem('accessToken')).resolves.toBeNull();
+    });
+
+    test('TC-011 | handleRefreshTokenFailure: Clears multiple session storage items along with tokens', async ({ page }) => {
+        // Set up initial state: navigate to a dashboard, set tokens, and multiple session data items.
+        await page.goto('http://localhost:3000/dashboard');
+        await authPage.setAccessToken('mock_access_token_multi');
+        await authPage.setRefreshToken('mock_refresh_token_multi');
+        await page.evaluate(() => {
+            sessionStorage.setItem('sessionData1', 'value1');
+            sessionStorage.setItem('sessionData2', 'value2');
+            sessionStorage.setItem('sessionData3', 'value3');
+        });
+
+        // Verify initial state
+        await expect(authPage.getLocalStorageItem('accessToken')).resolves.toBe('mock_access_token_multi');
+        await expect(authPage.getLocalStorageItem('refreshToken')).resolves.toBe('mock_refresh_token_multi');
+        await expect(authPage.getSessionStorageLength()).resolves.toBe(3);
+
+
+        // Execute the function
+        await authPage.handleRefreshTokenFailureInBrowser();
+
+        // Wait for the expected URL redirection.
+        await page.waitForURL('**/login');
+
+        // Assert localStorage and sessionStorage are cleared.
+        await expect(authPage.getLocalStorageItem('accessToken')).resolves.toBeNull();
+        await expect(authPage.getLocalStorageItem('refreshToken')).resolves.toBeNull();
+        await expect(authPage.getSessionStorageLength()).resolves.toBe(0);
+        // Assert the final URL.
+        expect(page.url()).toMatch(/\/login$/);
+    });
+
+    // --- End of new test cases ---
 });
 // --- End of main test script: `test-automation/src/tests/specs/auth/refreshToken.spec.ts` ---
