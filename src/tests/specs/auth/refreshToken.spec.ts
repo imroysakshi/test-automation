@@ -1,8 +1,10 @@
 // @ts-nocheck
 // @ts-nocheck
+// @ts-nocheck
 // This test script assumes the following helper files are created in the `test-automation` project:
 // 1. `test-automation/src/utils/authFunctions.ts`: Contains the `refreshAccessToken` and `handleRefreshTokenFailure` functions as provided in the "Development Code Reference".
 // 2. `test-automation/src/tests/pages/auth.page.ts`: Contains the `AuthPage` class as defined below, encapsulating browser interactions related to authentication.
+// 3. `test-automation/src/authService.ts`: Contains the `refreshToken` and `logRefreshCalled` functions as provided in the "Development Code Reference".
 
 // --- Start of assumed file: `test-automation/src/utils/authFunctions.ts` ---
 // This content is based on the "Development Code Reference" and is assumed to be
@@ -44,12 +46,51 @@ export function handleRefreshTokenFailure() {
 // --- End of assumed file: `test-automation/src/utils/authFunctions.ts` ---
 
 
+// --- Start of assumed file: `test-automation/src/authService.ts` ---
+// This content is based on the "Development Code Reference" and is assumed to be
+// placed in `src/authService.ts` within the `test-automation` project.
+
+export async function refreshToken(): Promise<string> {
+    try {
+        const response = await fetch('/api/auth/refresh', {
+            method: 'POST',
+            credentials: 'include', // important if refresh token is in cookies
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to refresh token');
+        }
+
+        const data = await response.json();
+
+        // assuming API returns { accessToken: string }
+        return data.accessToken;
+    } catch (error: unknown) {
+        console.error('Refresh token error:', error);
+        // Re-throw the error, ensuring it's an Error instance for consistency
+        if (error instanceof Error) {
+            throw error;
+        }
+        throw new Error(String(error));
+    }
+}
+
+export function logRefreshCalled(): void {
+  console.log('refreshToken function was called');
+}
+// --- End of assumed file: `test-automation/src/authService.ts` ---
+
+
 // --- Start of assumed file: `test-automation/src/tests/pages/auth.page.ts` ---
 // This content is assumed to be placed in `src/tests/pages/auth.page.ts`
 // within the `test-automation` project.
 
 import { Page } from '@playwright/test';
 import { refreshAccessToken, handleRefreshTokenFailure } from '../../utils/authFunctions'; // Path from src/tests/pages to src/utils
+import { refreshToken as apiRefreshToken, logRefreshCalled } from '../../authService'; // Path from src/tests/pages to src/authService
 
 export class AuthPage {
     readonly page: Page;
@@ -166,6 +207,21 @@ export class AuthPage {
             }
             return performance.now() - start;
         }, [handleRefreshTokenFailure, iterations]); // Pass the actual function and arguments as an array
+    }
+
+    /**
+     * Executes the `refreshToken` API call function within the browser context.
+     * @returns The new access token from the API response.
+     */
+    async callApiRefreshTokenInBrowser(): Promise<string> {
+        return this.page.evaluate(apiRefreshToken);
+    }
+
+    /**
+     * Executes the `logRefreshCalled` function within the browser context.
+     */
+    async callLogRefreshCalledInBrowser(): Promise<void> {
+        return this.page.evaluate(logRefreshCalled);
     }
 }
 // --- End of assumed file: `test-automation/src/tests/pages/auth.page.ts` ---
@@ -397,6 +453,120 @@ test.describe('Auth Refresh Token Feature', () => {
         await expect(authPage.getSessionStorageLength()).resolves.toBe(0);
         // Assert the final URL.
         expect(page.url()).toMatch(/\/login$/);
+    });
+
+    test('TC-012 | refreshToken - Happy Path: Successful API call returns new access token', async ({ page }) => {
+        const expectedAccessToken = 'new_api_access_token_mock';
+
+        await page.route('**/api/auth/refresh', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ accessToken: expectedAccessToken }),
+            });
+        });
+
+        const newAccessToken = await authPage.callApiRefreshTokenInBrowser();
+
+        expect(newAccessToken).toBe(expectedAccessToken);
+    });
+
+    test('TC-013 | refreshToken - Negative: API call returns non-200 status', async ({ page }) => {
+        await page.route('**/api/auth/refresh', async route => {
+            await route.fulfill({
+                status: 401,
+                contentType: 'application/json',
+                body: JSON.stringify({ message: 'Unauthorized' }),
+            });
+        });
+
+        await expect(authPage.callApiRefreshTokenInBrowser()).rejects.toThrow('Failed to refresh token');
+    });
+
+    test('TC-014 | refreshToken - Negative: API call fails (network error)', async ({ page }) => {
+        const consoleErrors: string[] = [];
+        page.on('console', (msg: ConsoleMessage) => {
+            if (msg.type() === 'error') {
+                consoleErrors.push(msg.text());
+            }
+        });
+
+        await page.route('**/api/auth/refresh', async route => {
+            await route.abort('failed'); // Simulate network error
+        });
+
+        // When fetch aborts, it typically results in a TypeError 'Failed to fetch' in the browser.
+        // The service logic catches this and re-throws, so the Page Object method will reject with the original error.
+        await expect(authPage.callApiRefreshTokenInBrowser()).rejects.toThrow(/Failed to fetch|NetworkError/);
+
+        // Verify that the console.error was called by the `refreshToken` service function
+        expect(consoleErrors.some(msg => msg.includes('Refresh token error:'))).toBeTruthy();
+    });
+
+
+    test('TC-015 | refreshToken - Negative: API returns malformed JSON (missing accessToken)', async ({ page }) => {
+        await page.route('**/api/auth/refresh', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ token: 'some_other_token' }), // Missing accessToken property
+            });
+        });
+
+        // Accessing `data.accessToken` when `data` is `{ token: '...' }` will result in `undefined.accessToken`,
+        // which typically causes a TypeError: Cannot read properties of undefined (reading 'accessToken')
+        await expect(authPage.callApiRefreshTokenInBrowser()).rejects.toThrow(/Cannot read properties of undefined|accessToken/);
+    });
+
+    test('TC-016 | refreshToken - Performance: Slow network response', async ({ page }) => {
+        const expectedAccessToken = 'delayed_access_token';
+        const delayMs = 2000; // Using a shorter delay for practical test execution, actual 5000ms in guide
+
+        await page.route('**/api/auth/refresh', async route => {
+            await new Promise<void>(resolve => setTimeout(resolve, delayMs)); // Simulate delay
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ accessToken: expectedAccessToken }),
+            });
+        });
+
+        const startTime = Date.now();
+        const newAccessToken = await authPage.callApiRefreshTokenInBrowser();
+        const endTime = Date.now();
+
+        expect(newAccessToken).toBe(expectedAccessToken);
+        // Ensure the actual execution time is at least the simulated delay
+        expect(endTime - startTime).toBeGreaterThanOrEqual(delayMs);
+        // Allow a small buffer for test execution overhead
+        expect(endTime - startTime).toBeLessThan(delayMs + 500);
+    });
+
+    test('TC-017 | refreshToken - Edge Case: API returns empty JSON object', async ({ page }) => {
+        await page.route('**/api/auth/refresh', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({}), // Empty JSON object
+            });
+        });
+
+        // Similar to TC-015, accessing `data.accessToken` where `data` is `{}`
+        // will result in `undefined.accessToken`, causing a TypeError.
+        await expect(authPage.callApiRefreshTokenInBrowser()).rejects.toThrow(/Cannot read properties of undefined|accessToken/);
+    });
+
+    test('TC-018 | logRefreshCalled - Happy Path: Logs message to console', async ({ page }) => {
+        const consoleLogs: string[] = [];
+        page.on('console', (msg: ConsoleMessage) => {
+            if (msg.type() === 'log') { // Check for log type
+                consoleLogs.push(msg.text());
+            }
+        });
+
+        await authPage.callLogRefreshCalledInBrowser();
+
+        expect(consoleLogs).toContain('refreshToken function was called');
     });
 
     // --- End of new test cases ---
